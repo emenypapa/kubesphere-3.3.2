@@ -19,6 +19,8 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"math"
 	"strings"
 	"time"
@@ -115,8 +117,8 @@ func (mo monitoringOperator) GetMetricOverTime(expr, namespace string, start, en
 	return mo.prometheus.GetMetricOverTime(expr, start, end, step), nil
 }
 
-func (mo monitoringOperator) GetNamedMetrics(metrics []string, time time.Time, opt monitoring.QueryOption) Metrics {
-	ress := mo.prometheus.GetNamedMetrics(metrics, time, opt)
+func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt monitoring.QueryOption) Metrics {
+	ress := mo.prometheus.GetNamedMetrics(metrics, t, opt)
 
 	opts := &monitoring.QueryOptions{}
 	opt.Apply(opts)
@@ -137,7 +139,7 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, time time.Time, o
 				// this metric has no prometheus metrics data or the request need to list all nodes metrics
 				if len(edgeMetrics) == 0 {
 					// start to request monintoring metricsApi data
-					mr := mo.metricsserver.GetNamedMetrics(metrics, time, opt)
+					mr := mo.metricsserver.GetNamedMetrics(metrics, t, opt)
 					for _, mrMetric := range mr {
 						edgeMetrics[mrMetric.MetricName] = mrMetric.MetricData
 					}
@@ -150,7 +152,95 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, time time.Time, o
 		}
 	}
 
+	var fpgaCpuCapacityNum int64
+	var fpgaCpuAllocatableNum int64
+	var fpgaMemCapacityNum int64
+	var fpgaMemAllocatableNum int64
+	var tpuCapacityNum int64
+	var tpuAllocatableNum int64
+
+	nodes, err := mo.listEdgeNodes()
+	if err != nil {
+		klog.Errorf("List edge nodes error %v\n", err)
+	} else {
+		for _, node := range nodes.Items {
+			fpgaCpuCapacityNum += node.Status.Capacity.Name("eicas.com/fpga-cpu", resource.DecimalExponent).Value()
+			fpgaCpuAllocatableNum += node.Status.Allocatable.Name("eicas.com/fpga-cpu", resource.DecimalExponent).Value()
+			fpgaMemCapacityNum += node.Status.Capacity.Name("eicas.com/fpga-mem", resource.DecimalExponent).Value()
+			fpgaMemAllocatableNum += node.Status.Allocatable.Name("eicas.com/fpga-mem", resource.DecimalExponent).Value()
+			tpuCapacityNum += node.Status.Capacity.Name("eicas.com/tpu", resource.DecimalExponent).Value()
+			tpuAllocatableNum += node.Status.Allocatable.Name("eicas.com/tpu", resource.DecimalExponent).Value()
+		}
+	}
+	tpuAssigned := tpuCapacityNum - tpuAllocatableNum
+	fpgaCpuAssigned := fpgaCpuCapacityNum - fpgaCpuAllocatableNum
+	fpgaMemAssigned := fpgaMemCapacityNum - fpgaMemAllocatableNum
+
+	for i := 0; i < len(ress); i++ {
+		switch ress[i].MetricName {
+		case "cluster_tpu_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuCapacityNum)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_tpu_usage":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuAssigned)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_cpu_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuCapacityNum)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_cpu_usage":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuAssigned)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_mem_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemCapacityNum)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_mem_usage":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemAssigned)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		}
+	}
+
 	return Metrics{Results: ress}
+}
+
+func (mo monitoringOperator) listEdgeNodes() (*v1.NodeList, error) {
+	nodeClient := mo.k8s.CoreV1()
+
+	nodeList, err := nodeClient.Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return nodeList, err
+	}
+
+	return nodeList, nil
 }
 
 func (mo monitoringOperator) GetNamedMetricsOverTime(metrics []string, start, end time.Time, step time.Duration, opt monitoring.QueryOption) Metrics {

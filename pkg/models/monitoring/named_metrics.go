@@ -31,6 +31,12 @@ const (
 )
 
 var ClusterMetrics = []string{
+	"cluster_tpu_usage",
+	"cluster_tpu_total",
+	"cluster_fpga_cpu_usage",
+	"cluster_fpga_cpu_total",
+	"cluster_fpga_mem_usage",
+	"cluster_fpga_mem_total",
 	"cluster_cpu_utilisation",
 	"cluster_cpu_usage",
 	"cluster_cpu_total",
