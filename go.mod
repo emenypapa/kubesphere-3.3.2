@@ -72,6 +72,7 @@ require (
 	github.com/open-policy-agent/opa v0.18.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/operator-framework/helm-operator-plugins v0.0.8-0.20210810182245-240cc447b3de
+	github.com/parnurzeal/gorequest v0.2.16
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/projectcalico/kube-controllers v3.8.8+incompatible
@@ -82,8 +83,6 @@ require (
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.26.0
 	github.com/prometheus/prometheus v1.8.2-0.20200907175821-8219b442c864
-	github.com/shirou/gopsutil v0.0.0-20180427012116-c95755e4bcd7 // indirect
-	github.com/shirou/w32 v0.0.0-20160930032740-bb4de0191aa4 // indirect
 	github.com/sony/sonyflake v0.0.0-20181109022403-6d5bd6181009
 	github.com/speps/go-hashids v2.0.0+incompatible
 	github.com/spf13/cobra v1.2.1
@@ -128,6 +127,7 @@ require (
 	kubesphere.io/api v0.0.0
 	kubesphere.io/client-go v0.0.0
 	kubesphere.io/monitoring-dashboard v0.2.2
+	moul.io/http2curl v1.0.0 // indirect
 	rsc.io/letsencrypt v0.0.1 // indirect
 	sigs.k8s.io/application v0.8.4-0.20201016185654-c8e2959e57a0
 	sigs.k8s.io/controller-runtime v0.10.0

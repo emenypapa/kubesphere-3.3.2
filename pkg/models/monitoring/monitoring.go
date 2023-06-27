@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"math"
 	"strings"
 	"time"
@@ -35,6 +34,7 @@ import (
 
 	"kubesphere.io/api/iam/v1alpha2"
 
+	"github.com/parnurzeal/gorequest"
 	"kubesphere.io/kubesphere/pkg/apiserver/query"
 	ksinformers "kubesphere.io/kubesphere/pkg/client/informers/externalversions"
 	"kubesphere.io/kubesphere/pkg/constants"
@@ -152,44 +152,86 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt 
 		}
 	}
 
-	var fpgaCpuCapacityNum int64
-	var fpgaCpuAllocatableNum int64
-	var fpgaMemCapacityNum int64
-	var fpgaMemAllocatableNum int64
-	var tpuCapacityNum int64
-	var tpuAllocatableNum int64
+	var fpgaCpuTotalNum int64
+	var fpgaCpuUsedNum int64
+	var fpgaCpuFreeNum int64
+
+	var fpgaMemTotalNum int64
+	var fpgaMemUsedNum int64
+	var fpgaMemFreeNum int64
+
+	var tpuMemTotalNum int64
+	var tpuMemUsedNum int64
+	var tpuMemFreeNum int64
+	var tpuUsageNum int64
 
 	nodes, err := mo.listEdgeNodes()
 	if err != nil {
 		klog.Errorf("List edge nodes error %v\n", err)
 	} else {
-		for _, node := range nodes.Items {
-			fpgaCpuCapacityNum += node.Status.Capacity.Name("eicas.com/fpga-cpu", resource.DecimalExponent).Value()
-			fpgaCpuAllocatableNum += node.Status.Allocatable.Name("eicas.com/fpga-cpu", resource.DecimalExponent).Value()
-			fpgaMemCapacityNum += node.Status.Capacity.Name("eicas.com/fpga-mem", resource.DecimalExponent).Value()
-			fpgaMemAllocatableNum += node.Status.Allocatable.Name("eicas.com/fpga-mem", resource.DecimalExponent).Value()
-			tpuCapacityNum += node.Status.Capacity.Name("eicas.com/tpu", resource.DecimalExponent).Value()
-			tpuAllocatableNum += node.Status.Allocatable.Name("eicas.com/tpu", resource.DecimalExponent).Value()
+		nodeIPs := mo.GetNodeIPs(nodes)
+
+		for _, nodeIP := range nodeIPs {
+			err, tpuMemRes := RpcTpuMemAnalysis(nodeIP)
+			if err != nil {
+				klog.Errorf("RpcTpuMemAnalysis error %v\n", err)
+			}
+			tpuMemTotalNum += tpuMemRes.Data.TotalMemSize
+			tpuMemUsedNum += tpuMemRes.Data.UsedMemSize
+			tpuMemFreeNum += tpuMemRes.Data.FreeMemSize
+
+			err, tpuUsageRes := RpcTpuUsageAnalysis(nodeIP)
+			if err != nil {
+				klog.Errorf("RpcTpuUsageAnalysis error %v\n", err)
+			}
+			tpuUsageNum += int64(tpuUsageRes.Data)
+
+			err, fpgaDetailsRes := RpcFpgaDetailsAnalysis(nodeIP)
+			if err != nil {
+				klog.Errorf("RpcFpgaDetailsAnalysis error %v\n", err)
+			}
+
+			fpgaCpuTotalNum += fpgaDetailsRes.Data.TotalCpuSize
+			fpgaCpuUsedNum += fpgaDetailsRes.Data.UsedCpuSize
+			fpgaCpuFreeNum += fpgaDetailsRes.Data.FreeCpuSize
+			fpgaMemTotalNum += fpgaDetailsRes.Data.TotalMemSize
+			fpgaMemUsedNum += fpgaDetailsRes.Data.UsedMemSize
+			fpgaMemFreeNum += fpgaDetailsRes.Data.FreeMemSize
 		}
+
+		tpuUsageNum = tpuUsageNum / int64(len(nodeIPs))
 	}
-	tpuAssigned := tpuCapacityNum - tpuAllocatableNum
-	fpgaCpuAssigned := fpgaCpuCapacityNum - fpgaCpuAllocatableNum
-	fpgaMemAssigned := fpgaMemCapacityNum - fpgaMemAllocatableNum
 
 	for i := 0; i < len(ress); i++ {
 		switch ress[i].MetricName {
-		case "cluster_tpu_total":
+		case "cluster_tpu_usage":
 			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
 			metricValue := monitoring.MetricValue{
-				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuCapacityNum)},
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
 			}
 			res.MetricValues = append(res.MetricValues, metricValue)
 			ress[i].MetricData = res
 			ress[i].Error = ""
-		case "cluster_tpu_usage":
+		case "cluster_tpu_mem_total":
 			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
 			metricValue := monitoring.MetricValue{
-				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuAssigned)},
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuMemTotalNum)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_tpu_mem_used":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuMemUsedNum)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_tpu_mem_free":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuMemFreeNum)},
 			}
 			res.MetricValues = append(res.MetricValues, metricValue)
 			ress[i].MetricData = res
@@ -197,15 +239,23 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt 
 		case "cluster_fpga_cpu_total":
 			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
 			metricValue := monitoring.MetricValue{
-				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuCapacityNum)},
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuTotalNum)},
 			}
 			res.MetricValues = append(res.MetricValues, metricValue)
 			ress[i].MetricData = res
 			ress[i].Error = ""
-		case "cluster_fpga_cpu_usage":
+		case "cluster_fpga_cpu_used":
 			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
 			metricValue := monitoring.MetricValue{
-				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuAssigned)},
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuUsedNum)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_cpu_free":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuFreeNum)},
 			}
 			res.MetricValues = append(res.MetricValues, metricValue)
 			ress[i].MetricData = res
@@ -213,15 +263,23 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt 
 		case "cluster_fpga_mem_total":
 			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
 			metricValue := monitoring.MetricValue{
-				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemCapacityNum)},
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemTotalNum)},
 			}
 			res.MetricValues = append(res.MetricValues, metricValue)
 			ress[i].MetricData = res
 			ress[i].Error = ""
-		case "cluster_fpga_mem_usage":
+		case "cluster_fpga_mem_used":
 			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
 			metricValue := monitoring.MetricValue{
-				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemAssigned)},
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemUsedNum)},
+			}
+			res.MetricValues = append(res.MetricValues, metricValue)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_mem_free":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			metricValue := monitoring.MetricValue{
+				Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemFreeNum)},
 			}
 			res.MetricValues = append(res.MetricValues, metricValue)
 			ress[i].MetricData = res
@@ -230,6 +288,18 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt 
 	}
 
 	return Metrics{Results: ress}
+}
+
+func (mo monitoringOperator) GetNodeIPs(nodes *v1.NodeList) []string {
+	var nodeIPs []string
+	for _, node := range nodes.Items {
+		for _, address := range node.Status.Addresses {
+			if address.Type == v1.NodeInternalIP {
+				nodeIPs = append(nodeIPs, address.Address)
+			}
+		}
+	}
+	return nodeIPs
 }
 
 func (mo monitoringOperator) listEdgeNodes() (*v1.NodeList, error) {
@@ -241,6 +311,90 @@ func (mo monitoringOperator) listEdgeNodes() (*v1.NodeList, error) {
 	}
 
 	return nodeList, nil
+}
+
+type TpuMemRpcResponse struct {
+	Code int32          `json:"code"`
+	Msg  string         `json:"msg"`
+	Time time.Time      `json:"time"`
+	Data TpuMemAnalysis `json:"data"`
+}
+
+type TpuUsageRpcResponse struct {
+	Code int32     `json:"code"`
+	Msg  string    `json:"msg"`
+	Time time.Time `json:"time"`
+	Data int       `json:"data"`
+}
+
+type FpgaDetailsRpcResponse struct {
+	Code int32               `json:"code"`
+	Msg  string              `json:"msg"`
+	Time time.Time           `json:"time"`
+	Data FpgaDetailsAnalysis `json:"data"`
+}
+
+type FpgaDetailsAnalysis struct {
+	TotalCpuSize int64 `json:"total_cpu_size"`
+	UsedCpuSize  int64 `json:"used_cpu_size"`
+	FreeCpuSize  int64 `json:"free_cpu_size"`
+	TotalMemSize int64 `json:"total_mem_size"`
+	UsedMemSize  int64 `json:"used_mem_size"`
+	FreeMemSize  int64 `json:"free_mem_size"`
+}
+
+type TpuMemAnalysis struct {
+	TotalMemSize int64 `json:"total_mem_size"`
+	UsedMemSize  int64 `json:"used_mem_size"`
+	FreeMemSize  int64 `json:"free_mem_size"`
+}
+
+func RpcTpuMemAnalysis(nodeIp string) (err error, res TpuMemRpcResponse) {
+	rawURL := "http://" + nodeIp + ":2112/metrics/tpu_mem"
+	request := gorequest.New()
+	request.Get(rawURL)
+
+	//logger.Infof(ctx, " rawURL=[%+v] paramStr = [%+v]", rawURL, requestParam)
+	//request.Patch(rawURL).Header.Add("Authorization", token)
+	_, _, errs := request.EndStruct(&res)
+	//logger.Infof(ctx, " errs=[%+v] urlResp = [%+v]", errs, res)
+	if len(errs) > 0 {
+		err = errs[0]
+		return
+	}
+	return
+}
+
+func RpcTpuUsageAnalysis(nodeIp string) (err error, res TpuUsageRpcResponse) {
+	rawURL := "http://" + nodeIp + ":2112/metrics/tpu_usage"
+	request := gorequest.New()
+	request.Get(rawURL)
+
+	//logger.Infof(ctx, " rawURL=[%+v] paramStr = [%+v]", rawURL, requestParam)
+	//request.Patch(rawURL).Header.Add("Authorization", token)
+	_, _, errs := request.EndStruct(&res)
+	//logger.Infof(ctx, " errs=[%+v] urlResp = [%+v]", errs, res)
+	if len(errs) > 0 {
+		err = errs[0]
+		return
+	}
+	return
+}
+
+func RpcFpgaDetailsAnalysis(nodeIp string) (err error, res FpgaDetailsRpcResponse) {
+	rawURL := "http://" + nodeIp + ":2112/metrics/tpu_usage"
+	request := gorequest.New()
+	request.Get(rawURL)
+
+	//logger.Infof(ctx, " rawURL=[%+v] paramStr = [%+v]", rawURL, requestParam)
+	//request.Patch(rawURL).Header.Add("Authorization", token)
+	_, _, errs := request.EndStruct(&res)
+	//logger.Infof(ctx, " errs=[%+v] urlResp = [%+v]", errs, res)
+	if len(errs) > 0 {
+		err = errs[0]
+		return
+	}
+	return
 }
 
 func (mo monitoringOperator) GetNamedMetricsOverTime(metrics []string, start, end time.Time, step time.Duration, opt monitoring.QueryOption) Metrics {
