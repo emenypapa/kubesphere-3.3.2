@@ -100,6 +100,13 @@ var ClusterMetrics = []string{
 }
 
 var NodeMetrics = []string{
+	"node_tpu_mem_total",
+	"node_tpu_mem_used",
+	"node_tpu_mem_usage",
+	"node_fpga_mem_total",
+	"node_fpga_mem_used",
+	"node_fpga_cpu_total",
+	"node_fpga_cpu_used",
 	"node_cpu_utilisation",
 	"node_cpu_total",
 	"node_cpu_usage",

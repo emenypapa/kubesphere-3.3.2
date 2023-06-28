@@ -152,26 +152,58 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt 
 		}
 	}
 
-	var fpgaCpuTotalNum int64
-	var fpgaCpuUsedNum int64
-	var fpgaCpuFreeNum int64
+	var fpgaCpuTotalNum, fpgaCpuUsedNum, fpgaCpuFreeNum, fpgaMemTotalNum, fpgaMemUsedNum, fpgaMemFreeNum, tpuMemTotalNum, tpuMemUsedNum, tpuMemFreeNum, tpuUsageNum int64
 
-	var fpgaMemTotalNum int64
-	var fpgaMemUsedNum int64
-	var fpgaMemFreeNum int64
-
-	var tpuMemTotalNum int64
-	var tpuMemUsedNum int64
-	var tpuMemFreeNum int64
-	var tpuUsageNum int64
+	var nodeTpuMemTotalMetrics, nodeTpuMemUsedMetrics, nodeTpuMemUsageMetrics, nodeFpgaMemTotalMetrics, nodeFpgaMemUsedMetrics, nodeFpgaCpuTotalMetrics, nodeFpgaCpuUsedMetric []monitoring.MetricValue
 
 	nodes, err := mo.listEdgeNodes()
 	if err != nil {
 		klog.Errorf("List edge nodes error %v\n", err)
 	} else {
-		nodeIPs := mo.GetNodeIPs(nodes)
+		for _, node := range nodes.Items {
+			var nodeIP string
+			var nodeName string
+			for _, address := range node.Status.Addresses {
+				if address.Type == v1.NodeInternalIP {
+					nodeIP = address.Address
+				}
+			}
 
-		for _, nodeIP := range nodeIPs {
+			nodeTpuMemTotalMateDate := make(map[string]string)
+			nodeTpuMemTotalMateDate["__name__"] = "node:node_tpu_mem_total:"
+			nodeTpuMemTotalMateDate["host_ip"] = nodeIP
+			nodeTpuMemTotalMateDate["node"] = nodeName
+
+			nodeTpuMemUsedMateDate := make(map[string]string)
+			nodeTpuMemUsedMateDate["__name__"] = "node:node_tpu_mem_used:"
+			nodeTpuMemUsedMateDate["host_ip"] = nodeIP
+			nodeTpuMemUsedMateDate["node"] = nodeName
+
+			nodeTpuMemUsageMateDate := make(map[string]string)
+			nodeTpuMemUsageMateDate["__name__"] = "node:node_tpu_mem_usage:"
+			nodeTpuMemUsageMateDate["host_ip"] = nodeIP
+			nodeTpuMemUsageMateDate["node"] = nodeName
+
+			nodeFpgaMemTotalMateDate := make(map[string]string)
+			nodeFpgaMemTotalMateDate["__name__"] = "node:node_fpga_mem_total:"
+			nodeFpgaMemTotalMateDate["host_ip"] = nodeIP
+			nodeFpgaMemTotalMateDate["node"] = nodeName
+
+			nodeFpgaMemUsedMateDate := make(map[string]string)
+			nodeFpgaMemUsedMateDate["__name__"] = "node:node_fpga_mem_used:"
+			nodeFpgaMemUsedMateDate["host_ip"] = nodeIP
+			nodeFpgaMemUsedMateDate["node"] = nodeName
+
+			nodeFpgaCpuTotalMateDate := make(map[string]string)
+			nodeFpgaCpuTotalMateDate["__name__"] = "node:node_fpga_cpu_total:"
+			nodeFpgaCpuTotalMateDate["host_ip"] = nodeIP
+			nodeFpgaCpuTotalMateDate["node"] = nodeName
+
+			nodeFpgaCpuUsedMateDate := make(map[string]string)
+			nodeFpgaCpuUsedMateDate["__name__"] = "node:node_fpga_cpu_used:"
+			nodeFpgaCpuUsedMateDate["host_ip"] = nodeIP
+			nodeFpgaCpuUsedMateDate["node"] = nodeName
+
 			err, tpuMemRes := RpcTpuMemAnalysis(nodeIP)
 			if err != nil {
 				klog.Errorf("RpcTpuMemAnalysis error %v\n", err)
@@ -186,6 +218,21 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt 
 			}
 			tpuUsageNum += int64(tpuUsageRes.Data)
 
+			nodeTpuMemTotalMetricValue := monitoring.MetricValue{
+				Metadata: nodeTpuMemTotalMateDate,
+				Sample:   &monitoring.Point{float64(time.Now().Unix()), float64(tpuMemRes.Data.TotalMemSize)},
+			}
+			nodeTpuMemTotalMetrics = append(nodeTpuMemTotalMetrics, nodeTpuMemTotalMetricValue)
+			nodeTpuMemUsedMetricValue := monitoring.MetricValue{
+				Metadata: nodeTpuMemUsedMateDate,
+				Sample:   &monitoring.Point{float64(time.Now().Unix()), float64(tpuMemRes.Data.UsedMemSize)},
+			}
+			nodeTpuMemUsedMetrics = append(nodeTpuMemUsedMetrics, nodeTpuMemUsedMetricValue)
+			nodeTpuMemUsageMetricValue := monitoring.MetricValue{
+				Metadata: nodeTpuMemUsageMateDate,
+				Sample:   &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageRes.Data)},
+			}
+			nodeTpuMemUsageMetrics = append(nodeTpuMemUsageMetrics, nodeTpuMemUsageMetricValue)
 			err, fpgaDetailsRes := RpcFpgaDetailsAnalysis(nodeIP)
 			if err != nil {
 				klog.Errorf("RpcFpgaDetailsAnalysis error %v\n", err)
@@ -197,13 +244,98 @@ func (mo monitoringOperator) GetNamedMetrics(metrics []string, t time.Time, opt 
 			fpgaMemTotalNum += fpgaDetailsRes.Data.TotalMemSize
 			fpgaMemUsedNum += fpgaDetailsRes.Data.UsedMemSize
 			fpgaMemFreeNum += fpgaDetailsRes.Data.FreeMemSize
+
+			nodeFpgaMemTotalMetricValue := monitoring.MetricValue{
+				Metadata: nodeFpgaMemTotalMateDate,
+				Sample:   &monitoring.Point{float64(time.Now().Unix()), float64(fpgaDetailsRes.Data.TotalMemSize)},
+			}
+			nodeFpgaMemTotalMetrics = append(nodeFpgaMemTotalMetrics, nodeFpgaMemTotalMetricValue)
+			nodeFpgaMemUsedMetricValue := monitoring.MetricValue{
+				Metadata: nodeFpgaMemUsedMateDate,
+				Sample:   &monitoring.Point{float64(time.Now().Unix()), float64(fpgaDetailsRes.Data.UsedMemSize)},
+			}
+			nodeFpgaMemUsedMetrics = append(nodeFpgaMemUsedMetrics, nodeFpgaMemUsedMetricValue)
+			nodeFpgaCpuTotalMetricValue := monitoring.MetricValue{
+				Metadata: nodeFpgaCpuTotalMateDate,
+				Sample:   &monitoring.Point{float64(time.Now().Unix()), float64(fpgaDetailsRes.Data.TotalCpuSize)},
+			}
+			nodeFpgaCpuTotalMetrics = append(nodeFpgaCpuTotalMetrics, nodeFpgaCpuTotalMetricValue)
+			nodeFpgaCpuUsedMetricValue := monitoring.MetricValue{
+				Metadata: nodeFpgaCpuUsedMateDate,
+				Sample:   &monitoring.Point{float64(time.Now().Unix()), float64(fpgaDetailsRes.Data.UsedCpuSize)},
+			}
+			nodeFpgaCpuUsedMetric = append(nodeFpgaCpuUsedMetric, nodeFpgaCpuUsedMetricValue)
 		}
 
-		tpuUsageNum = tpuUsageNum / int64(len(nodeIPs))
+		if tpuUsageNum != 0 {
+			tpuUsageNum = tpuUsageNum / int64(len(nodes.Items))
+		}
+
 	}
+
+	//metricValue := monitoring.MetricValue{
+	//	//Metadata: make(map[string]string),
+	//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+	//}
 
 	for i := 0; i < len(ress); i++ {
 		switch ress[i].MetricName {
+		case "node_tpu_mem_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			//metricValue := monitoring.MetricValue{
+			//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+			//}
+			res.MetricValues = append(res.MetricValues, nodeTpuMemTotalMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "node_tpu_mem_used":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			//metricValue := monitoring.MetricValue{
+			//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+			//}
+			res.MetricValues = append(res.MetricValues, nodeTpuMemUsedMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "node_tpu_mem_usage":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			//metricValue := monitoring.MetricValue{
+			//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+			//}
+			res.MetricValues = append(res.MetricValues, nodeTpuMemUsageMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "node_fpga_mem_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			//metricValue := monitoring.MetricValue{
+			//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+			//}
+			res.MetricValues = append(res.MetricValues, nodeFpgaMemTotalMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "node_fpga_mem_used":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			//metricValue := monitoring.MetricValue{
+			//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+			//}
+			res.MetricValues = append(res.MetricValues, nodeFpgaMemUsedMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "node_fpga_cpu_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			//metricValue := monitoring.MetricValue{
+			//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+			//}
+			res.MetricValues = append(res.MetricValues, nodeFpgaCpuTotalMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "node_fpga_cpu_used":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			//metricValue := monitoring.MetricValue{
+			//	Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuUsageNum)},
+			//}
+			res.MetricValues = append(res.MetricValues, nodeFpgaCpuUsedMetric...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
 		case "cluster_tpu_usage":
 			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
 			metricValue := monitoring.MetricValue{
