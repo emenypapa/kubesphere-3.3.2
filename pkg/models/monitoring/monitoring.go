@@ -482,7 +482,7 @@ type TpuMemAnalysis struct {
 }
 
 func RpcTpuMemAnalysis(nodeIp string) (err error, res TpuMemRpcResponse) {
-	rawURL := "http://" + nodeIp + ":2112/metrics/tpu_mem"
+	rawURL := "http://" + nodeIp + ":32112/metrics/tpu_mem"
 	request := gorequest.New()
 	request.Get(rawURL)
 
@@ -498,7 +498,7 @@ func RpcTpuMemAnalysis(nodeIp string) (err error, res TpuMemRpcResponse) {
 }
 
 func RpcTpuUsageAnalysis(nodeIp string) (err error, res TpuUsageRpcResponse) {
-	rawURL := "http://" + nodeIp + ":2112/metrics/tpu_usage"
+	rawURL := "http://" + nodeIp + ":32112/metrics/tpu_usage"
 	request := gorequest.New()
 	request.Get(rawURL)
 
@@ -514,7 +514,7 @@ func RpcTpuUsageAnalysis(nodeIp string) (err error, res TpuUsageRpcResponse) {
 }
 
 func RpcFpgaDetailsAnalysis(nodeIp string) (err error, res FpgaDetailsRpcResponse) {
-	rawURL := "http://" + nodeIp + ":2112/metrics/tpu_usage"
+	rawURL := "http://" + nodeIp + ":32112/metrics/tpu_usage"
 	request := gorequest.New()
 	request.Get(rawURL)
 
