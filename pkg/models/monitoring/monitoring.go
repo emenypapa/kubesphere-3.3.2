@@ -514,7 +514,7 @@ func RpcTpuUsageAnalysis(nodeIp string) (err error, res TpuUsageRpcResponse) {
 }
 
 func RpcFpgaDetailsAnalysis(nodeIp string) (err error, res FpgaDetailsRpcResponse) {
-	rawURL := "http://" + nodeIp + ":32112/metrics/tpu_usage"
+	rawURL := "http://" + nodeIp + ":32112/metrics/fpga_details"
 	request := gorequest.New()
 	request.Get(rawURL)
 
