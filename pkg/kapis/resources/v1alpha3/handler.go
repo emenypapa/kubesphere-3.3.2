@@ -17,7 +17,10 @@ limitations under the License.
 package v1alpha3
 
 import (
+	"context"
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"net/http"
 	"strings"
 
@@ -25,7 +28,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog"
-
 	"kubesphere.io/kubesphere/pkg/api"
 	"kubesphere.io/kubesphere/pkg/apiserver/query"
 	"kubesphere.io/kubesphere/pkg/models/components"
@@ -33,6 +35,7 @@ import (
 	"kubesphere.io/kubesphere/pkg/models/resources/v1alpha2"
 	resourcev1alpha2 "kubesphere.io/kubesphere/pkg/models/resources/v1alpha2/resource"
 	resourcev1alpha3 "kubesphere.io/kubesphere/pkg/models/resources/v1alpha3/resource"
+	kserr "kubesphere.io/kubesphere/pkg/server/errors"
 	"kubesphere.io/kubesphere/pkg/server/params"
 )
 
@@ -41,14 +44,16 @@ type Handler struct {
 	resourcesGetterV1alpha2 *resourcev1alpha2.ResourceGetter
 	componentsGetter        components.ComponentsGetter
 	registryHelper          v2.RegistryHelper
+	k                       kubernetes.Interface
 }
 
-func New(resourceGetterV1alpha3 *resourcev1alpha3.ResourceGetter, resourcesGetterV1alpha2 *resourcev1alpha2.ResourceGetter, componentsGetter components.ComponentsGetter) *Handler {
+func New(resourceGetterV1alpha3 *resourcev1alpha3.ResourceGetter, resourcesGetterV1alpha2 *resourcev1alpha2.ResourceGetter, componentsGetter components.ComponentsGetter, k kubernetes.Interface) *Handler {
 	return &Handler{
 		resourceGetterV1alpha3:  resourceGetterV1alpha3,
 		resourcesGetterV1alpha2: resourcesGetterV1alpha2,
 		componentsGetter:        componentsGetter,
 		registryHelper:          v2.NewRegistryHelper(),
+		k:                       k,
 	}
 }
 
@@ -282,6 +287,59 @@ func (h *Handler) handleGetRepositoryTags(request *restful.Request, response *re
 	}
 
 	response.WriteHeaderAndJson(http.StatusOK, tags, restful.MIME_JSON)
+}
+
+func (h *Handler) handleUpdateRepository(request *restful.Request, response *restful.Response) {
+	var nodeLabels api.UpdateNodesLabels
+	err := request.ReadEntity(&nodeLabels)
+	if err != nil {
+		response.WriteHeaderAndEntity(http.StatusInternalServerError, kserr.Wrap(err))
+		return
+	}
+
+	for _, nodeAndLabels := range nodeLabels.NodeLabels {
+		node, err := h.k.CoreV1().Nodes().Get(context.TODO(), nodeAndLabels.Name, metav1.GetOptions{})
+		if err != nil {
+			response.WriteHeaderAndEntity(http.StatusInternalServerError, kserr.Wrap(err))
+			return
+		}
+
+		node.Labels = nodeAndLabels.Labels
+
+		_, err = h.k.CoreV1().Nodes().Update(context.TODO(), node, metav1.UpdateOptions{})
+		if err != nil {
+			response.WriteHeaderAndEntity(http.StatusInternalServerError, kserr.Wrap(err))
+			return
+		}
+	}
+
+	response.WriteHeaderAndJson(http.StatusOK, nil, restful.MIME_JSON)
+}
+
+func (h *Handler) handleAreas(request *restful.Request, response *restful.Response) {
+
+	response.WriteHeaderAndJson(http.StatusOK, api.AreaFlag, restful.MIME_JSON)
+}
+
+func (h *Handler) handleNodeAreas(request *restful.Request, response *restful.Response) {
+	labels := request.QueryParameter("labels")
+
+	labelArr := strings.Split(labels, "|")
+
+	var res = make(map[string][]v1.Node)
+
+	for _, label := range labelArr {
+		nodeList, err := h.k.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
+			LabelSelector: label,
+		})
+
+		if err != nil {
+			continue
+		}
+
+		res[label] = nodeList.Items
+	}
+	response.WriteHeaderAndJson(http.StatusOK, res, restful.MIME_JSON)
 }
 
 func canonicalizeRegistryError(request *restful.Request, response *restful.Response, err error) {

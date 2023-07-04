@@ -556,6 +556,171 @@ func (mo monitoringOperator) GetNamedMetricsOverTime(metrics []string, start, en
 		}
 	}
 
+	var fpgaCpuTotalNum, fpgaCpuUsedNum, fpgaCpuFreeNum, fpgaMemTotalNum, fpgaMemUsedNum, fpgaMemFreeNum, tpuMemTotalNum, tpuMemUsedNum, tpuMemFreeNum, tpuUsageNum int64
+	var fpgaCpuTotalMetrics, fpgaCpuUsedMetrics, fpgaCpuFreeMetrics, fpgaMemTotalMetrics, fpgaMemUsedMetrics, fpgaMemFreeMetrics, tpuMemTotalMetrics, tpuMemUsedMetrics, tpuMemFreeMetrics, tpuUsageMetrics []monitoring.MetricValue
+	nodes, err := mo.listEdgeNodes()
+	if err != nil {
+		klog.Errorf("List edge nodes error %v\n", err)
+	} else {
+		for _, node := range nodes.Items {
+			var nodeIP string
+			for _, address := range node.Status.Addresses {
+				if address.Type == v1.NodeInternalIP {
+					nodeIP = address.Address
+				}
+			}
+
+			err, tpuMemRes := RpcTpuMemAnalysis(nodeIP)
+			if err != nil {
+				klog.Errorf("RpcTpuMemAnalysis error %v\n", err)
+			}
+			tpuMemTotalNum += tpuMemRes.Data.TotalMemSize
+			tpuMemUsedNum += tpuMemRes.Data.UsedMemSize
+			tpuMemFreeNum += tpuMemRes.Data.FreeMemSize
+
+			err, tpuUsageRes := RpcTpuUsageAnalysis(nodeIP)
+			if err != nil {
+				klog.Errorf("RpcTpuUsageAnalysis error %v\n", err)
+			}
+			tpuUsageNum += int64(tpuUsageRes.Data)
+
+			err, fpgaDetailsRes := RpcFpgaDetailsAnalysis(nodeIP)
+			if err != nil {
+				klog.Errorf("RpcFpgaDetailsAnalysis error %v\n", err)
+			}
+
+			fpgaCpuTotalNum += fpgaDetailsRes.Data.TotalCpuSize
+			fpgaCpuUsedNum += fpgaDetailsRes.Data.UsedCpuSize
+			fpgaCpuFreeNum += fpgaDetailsRes.Data.FreeCpuSize
+			fpgaMemTotalNum += fpgaDetailsRes.Data.TotalMemSize
+			fpgaMemUsedNum += fpgaDetailsRes.Data.UsedMemSize
+			fpgaMemFreeNum += fpgaDetailsRes.Data.FreeMemSize
+
+		}
+
+		if tpuUsageNum != 0 {
+			tpuUsageNum = tpuUsageNum / int64(len(nodes.Items))
+		}
+
+	}
+
+	var times []float64
+
+	for _, metric := range ress {
+		for _, value := range metric.MetricData.MetricValues {
+			ti := value.Sample[0]
+			times = append(times, ti)
+		}
+		break
+	}
+
+	for _, t := range times {
+		tpuUsageMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{t, float64(tpuUsageNum)},
+		}
+		tpuUsageMetrics = append(tpuUsageMetrics, tpuUsageMetricValue)
+
+		tpuMemTotalMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{t, float64(tpuMemTotalNum)},
+		}
+		tpuMemTotalMetrics = append(tpuMemTotalMetrics, tpuMemTotalMetricValue)
+
+		tpuMemUsedMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuMemUsedNum)},
+		}
+		tpuMemUsedMetrics = append(tpuMemUsedMetrics, tpuMemUsedMetricValue)
+
+		tpuMemFreeMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(tpuMemFreeNum)},
+		}
+		tpuMemFreeMetrics = append(tpuMemFreeMetrics, tpuMemFreeMetricValue)
+
+		fpgaCpuTotalMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuTotalNum)},
+		}
+		fpgaCpuTotalMetrics = append(fpgaCpuTotalMetrics, fpgaCpuTotalMetricValue)
+
+		fpgaCpuUsedMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuUsedNum)},
+		}
+		fpgaCpuUsedMetrics = append(fpgaCpuUsedMetrics, fpgaCpuUsedMetricValue)
+
+		fpgaCpuFreeMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaCpuFreeNum)},
+		}
+		fpgaCpuFreeMetrics = append(fpgaCpuFreeMetrics, fpgaCpuFreeMetricValue)
+
+		fpgaMemTotalMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemTotalNum)},
+		}
+		fpgaMemTotalMetrics = append(fpgaMemTotalMetrics, fpgaMemTotalMetricValue)
+
+		fpgaMemUsedMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemUsedNum)},
+		}
+		fpgaMemUsedMetrics = append(fpgaMemUsedMetrics, fpgaMemUsedMetricValue)
+
+		fpgaMemFreeMetricValue := monitoring.MetricValue{
+			Sample: &monitoring.Point{float64(time.Now().Unix()), float64(fpgaMemFreeNum)},
+		}
+		fpgaMemFreeMetrics = append(fpgaMemFreeMetrics, fpgaMemFreeMetricValue)
+	}
+
+	for i := 0; i < len(ress); i++ {
+		switch ress[i].MetricName {
+		case "cluster_tpu_usage":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, tpuUsageMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_tpu_mem_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, tpuMemTotalMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_tpu_mem_used":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, tpuMemUsedMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_tpu_mem_free":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, tpuMemFreeMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_cpu_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, fpgaCpuTotalMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_cpu_used":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, fpgaCpuUsedMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_cpu_free":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, fpgaCpuFreeMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_mem_total":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, fpgaMemTotalMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_mem_used":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, fpgaMemUsedMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		case "cluster_fpga_mem_free":
+			res := monitoring.MetricData{MetricType: monitoring.MetricTypeVector}
+			res.MetricValues = append(res.MetricValues, fpgaMemFreeMetrics...)
+			ress[i].MetricData = res
+			ress[i].Error = ""
+		}
+	}
+
 	return Metrics{Results: ress}
 }
 

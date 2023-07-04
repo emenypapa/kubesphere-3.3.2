@@ -48,6 +48,27 @@ type Router struct {
 	Annotations map[string]string `json:"annotations"`
 }
 
+type UpdateNodesLabels struct {
+	NodeLabels []NodeLabels `json:"node_labels"`
+}
+
+type NodeLabels struct {
+	Name   string            `json:"name"`
+	Labels map[string]string `json:"Labels"`
+}
+
+const (
+	FrontCabin  = "FrontCabin"  // 0
+	MiddleCabin = "MiddleCabin" // 1
+	LaterCabin  = "LaterCabin"  // 2
+)
+
+var AreaFlag = map[string]string{
+	FrontCabin:  "FrontCabin",
+	MiddleCabin: "MiddleCabin",
+	LaterCabin:  "LaterCabin",
+}
+
 type GitCredential struct {
 	RemoteUrl string                  `json:"remoteUrl" description:"git server url"`
 	SecretRef *corev1.SecretReference `json:"secretRef,omitempty" description:"auth secret reference"`

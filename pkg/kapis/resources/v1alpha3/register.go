@@ -21,6 +21,8 @@ import (
 	restfulspec "github.com/emicklei/go-restful-openapi"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
+	"kubesphere.io/kubesphere/pkg/server/errors"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 
 	"kubesphere.io/kubesphere/pkg/api"
@@ -52,10 +54,10 @@ func Resource(resource string) schema.GroupResource {
 	return GroupVersion.WithResource(resource).GroupResource()
 }
 
-func AddToContainer(c *restful.Container, informerFactory informers.InformerFactory, cache cache.Cache) error {
+func AddToContainer(c *restful.Container, k8sClient kubernetes.Interface, informerFactory informers.InformerFactory, cache cache.Cache) error {
 
 	webservice := runtime.NewWebService(GroupVersion)
-	handler := New(resourcev1alpha3.NewResourceGetter(informerFactory, cache), resourcev1alpha2.NewResourceGetter(informerFactory), components.NewComponentsGetter(informerFactory.KubernetesSharedInformerFactory()))
+	handler := New(resourcev1alpha3.NewResourceGetter(informerFactory, cache), resourcev1alpha2.NewResourceGetter(informerFactory), components.NewComponentsGetter(informerFactory.KubernetesSharedInformerFactory()), k8sClient)
 
 	webservice.Route(webservice.GET("/{resources}").
 		To(handler.handleListResources).
@@ -143,6 +145,20 @@ func AddToContainer(c *restful.Container, informerFactory informers.InformerFact
 		Metadata(restfulspec.KeyOpenAPITags, []string{tagNamespacedResource}).
 		Doc("List repository tags, this is an experimental API, use it by your own caution.").
 		Returns(http.StatusOK, ok, v2.RepositoryTags{}))
+	webservice.Route(webservice.POST("/nodes").
+		To(handler.handleUpdateRepository).
+		Metadata(restfulspec.KeyOpenAPITags, []string{tagClusteredResource}).
+		Returns(http.StatusOK, api.StatusOK, errors.Error{}))
+	webservice.Route(webservice.GET("/areas").
+		To(handler.handleAreas).
+		Metadata(restfulspec.KeyOpenAPITags, []string{tagClusteredResource}).
+		Returns(http.StatusOK, api.StatusOK, errors.Error{}))
+	webservice.Route(webservice.GET("/eicas/nodes/areas").
+		To(handler.handleNodeAreas).
+		//Param(webservice.PathParameter("labels", "node labels").DataType("string").AllowMultiple(true)).
+		Param(webservice.QueryParameter("labels", "node labels").DataType("string").Required(true)).
+		Metadata(restfulspec.KeyOpenAPITags, []string{tagClusteredResource}).
+		Returns(http.StatusOK, api.StatusOK, errors.Error{}))
 
 	c.Add(webservice)
 
