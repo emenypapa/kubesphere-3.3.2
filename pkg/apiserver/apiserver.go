@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	schedulingv1 "kubesphere.io/kubesphere/pkg/kapis/scheduling/v1"
 	"net/http"
 	rt "runtime"
 	"strconv"
@@ -227,6 +228,7 @@ func (s *APIServer) installKubeSphereAPIs(stopCh <-chan struct{}) {
 
 	urlruntime.Must(configv1alpha2.AddToContainer(s.container, s.Config))
 	urlruntime.Must(resourcev1alpha3.AddToContainer(s.container, s.KubernetesClient.Kubernetes(), s.InformerFactory, s.RuntimeCache))
+	urlruntime.Must(schedulingv1.AddToContainer(s.container, s.KubernetesClient.Kubernetes()))
 	urlruntime.Must(monitoringv1alpha3.AddToContainer(s.container, s.KubernetesClient.Kubernetes(), s.MonitoringClient, s.MetricsClient, s.InformerFactory, s.OpenpitrixClient, s.RuntimeClient))
 	urlruntime.Must(meteringv1alpha1.AddToContainer(s.container, s.KubernetesClient.Kubernetes(), s.MonitoringClient, s.InformerFactory, s.RuntimeCache, s.Config.MeteringOptions, s.OpenpitrixClient, s.RuntimeClient))
 	urlruntime.Must(openpitrixv1.AddToContainer(s.container, s.InformerFactory, s.KubernetesClient.KubeSphere(), s.Config.OpenPitrixOptions, s.OpenpitrixClient))

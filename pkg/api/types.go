@@ -52,6 +52,11 @@ type UpdateNodesLabels struct {
 	NodeLabels []NodeLabels `json:"node_labels"`
 }
 
+type PriorityClass struct {
+	Name  string `json:"name"`
+	Value int32  `json:"value"`
+}
+
 type NodeLabels struct {
 	Name   string            `json:"name"`
 	Labels map[string]string `json:"Labels"`
